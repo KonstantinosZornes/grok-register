@@ -43,25 +43,25 @@ class DummyResponse:
         return self._payload
 
 
-class OutlookPlusClaimTests(unittest.TestCase):
+class outlookEmailPlusClaimTests(unittest.TestCase):
     def setUp(self):
         self.original_config = app.config.copy()
-        self.original_pending = app._outlook_plus_pending_claim
-        app._outlook_plus_pending_claim = None
+        self.original_pending = app._outlook_email_plus_pending_claim
+        app._outlook_email_plus_pending_claim = None
         app.config.update({
-            "email_provider": "outlook_plus",
-            "outlook_plus_api_base": "https://omp.example.com",
-            "outlook_plus_api_key": "api-secret",
-            "outlook_plus_caller_id": "grok-register",
-            "outlook_plus_pool_provider": "",
-            "outlook_plus_project_key": "",
-            "outlook_plus_email_domain": "",
+            "email_provider": "outlook_email_plus",
+            "outlook_email_plus_api_base": "https://omp.example.com",
+            "outlook_email_plus_api_key": "api-secret",
+            "outlook_email_plus_caller_id": "grok-register",
+            "outlook_email_plus_pool_provider": "",
+            "outlook_email_plus_project_key": "",
+            "outlook_email_plus_email_domain": "",
             "proxy": "",
         })
 
     def tearDown(self):
         app.config = self.original_config
-        app._outlook_plus_pending_claim = self.original_pending
+        app._outlook_email_plus_pending_claim = self.original_pending
 
     def test_claim_random_builds_correct_payload_and_returns_email_with_claim_context(self):
         posts = []
@@ -79,7 +79,7 @@ class OutlookPlusClaimTests(unittest.TestCase):
             })
 
         with patch.object(app, "http_post", side_effect=fake_post):
-            email, dev_token = app.outlook_plus_get_email_and_token()
+            email, dev_token = app.outlook_email_plus_get_email_and_token()
 
         self.assertEqual(email, "abc@ex.com")
         import json as _json
@@ -97,14 +97,14 @@ class OutlookPlusClaimTests(unittest.TestCase):
         # 留空筛选不携带 provider 字段
         self.assertNotIn("provider", kwargs["json"])
         # pending claim 已登记
-        self.assertEqual(app._outlook_plus_pending_claim["account_id"], 42)
-        self.assertEqual(app._outlook_plus_pending_claim["email"], "abc@ex.com")
+        self.assertEqual(app._outlook_email_plus_pending_claim["account_id"], 42)
+        self.assertEqual(app._outlook_email_plus_pending_claim["email"], "abc@ex.com")
 
     def test_claim_random_with_pool_provider_and_project_key(self):
         app.config.update({
-            "outlook_plus_pool_provider": "cloudflare_temp_mail",
-            "outlook_plus_project_key": "project-A",
-            "outlook_plus_email_domain": "zerodotsix.top",
+            "outlook_email_plus_pool_provider": "cloudflare_temp_mail",
+            "outlook_email_plus_project_key": "project-A",
+            "outlook_email_plus_email_domain": "zerodotsix.top",
         })
         posts = []
 
@@ -116,7 +116,7 @@ class OutlookPlusClaimTests(unittest.TestCase):
             })
 
         with patch.object(app, "http_post", side_effect=fake_post):
-            app.outlook_plus_get_email_and_token()
+            app.outlook_email_plus_get_email_and_token()
 
         payload = posts[0][1]["json"]
         self.assertEqual(payload["provider"], "cloudflare_temp_mail")
@@ -129,11 +129,11 @@ class OutlookPlusClaimTests(unittest.TestCase):
 
         with patch.object(app, "http_post", side_effect=fake_post):
             with self.assertRaises(Exception) as ctx:
-                app.outlook_plus_get_email_and_token()
-        self.assertIn("OutlookPlus 池中没有可用邮箱", str(ctx.exception))
+                app.outlook_email_plus_get_email_and_token()
+        self.assertIn("outlookEmailPlus 池中没有可用邮箱", str(ctx.exception))
 
     def test_complete_pending_posts_claim_complete_and_clears_state(self):
-        app._outlook_plus_pending_claim = {
+        app._outlook_email_plus_pending_claim = {
             "account_id": 11,
             "claim_token": "clm_11",
             "caller_id": "grok-register",
@@ -147,9 +147,9 @@ class OutlookPlusClaimTests(unittest.TestCase):
             return DummyResponse({"success": True, "data": {"pool_status": "used"}})
 
         with patch.object(app, "http_post", side_effect=fake_post):
-            app.outlook_plus_complete_pending("success", "注册成功")
+            app.outlook_email_plus_complete_pending("success", "注册成功")
 
-        self.assertIsNone(app._outlook_plus_pending_claim)
+        self.assertIsNone(app._outlook_email_plus_pending_claim)
         url, kwargs = posts[0]
         self.assertEqual(url, "https://omp.example.com/api/external/pool/claim-complete")
         self.assertEqual(kwargs["json"], {
@@ -162,7 +162,7 @@ class OutlookPlusClaimTests(unittest.TestCase):
         })
 
     def test_next_claim_releases_previous_pending(self):
-        app._outlook_plus_pending_claim = {
+        app._outlook_email_plus_pending_claim = {
             "account_id": 1,
             "claim_token": "clm_old",
             "caller_id": "grok-register",
@@ -181,7 +181,7 @@ class OutlookPlusClaimTests(unittest.TestCase):
             })
 
         with patch.object(app, "http_post", side_effect=fake_post):
-            app.outlook_plus_get_email_and_token()
+            app.outlook_email_plus_get_email_and_token()
 
         urls = [u for u, _ in posts]
         self.assertEqual(urls[0], "https://omp.example.com/api/external/pool/claim-release")
@@ -190,8 +190,8 @@ class OutlookPlusClaimTests(unittest.TestCase):
         self.assertEqual(posts[0][1]["json"]["account_id"], 1)
 
     def test_release_and_complete_dispatch_is_noop_for_other_providers(self):
-        # 模拟 outlook_plus 挂起租约存在，但 provider 切换为 cloudflare
-        app._outlook_plus_pending_claim = {
+        # 模拟 outlook_email_plus 挂起租约存在，但 provider 切换为 cloudflare
+        app._outlook_email_plus_pending_claim = {
             "account_id": 99,
             "claim_token": "clm_z",
             "caller_id": "grok-register",
@@ -202,18 +202,18 @@ class OutlookPlusClaimTests(unittest.TestCase):
         with patch.object(app, "http_post") as fake_post:
             app.release_email_provider_claim("failed")
             app.complete_email_provider_claim("success")
-        # dispatch 层应在非 outlook_plus 时直接返回，不触发任何请求；
+        # dispatch 层应在非 outlook_email_plus 时直接返回，不触发任何请求；
         # 但 pending 仍保留，避免误清空其它 provider 的状态
         self.assertEqual(fake_post.call_count, 0)
         # 恢复以便后续断言
-        app._outlook_plus_pending_claim = None
+        app._outlook_email_plus_pending_claim = None
 
 
-class OutlookPlusVerificationTests(unittest.TestCase):
+class outlookEmailPlusVerificationTests(unittest.TestCase):
     def setUp(self):
         self.original_config = app.config.copy()
-        self.original_pending = app._outlook_plus_pending_claim
-        app._outlook_plus_pending_claim = {
+        self.original_pending = app._outlook_email_plus_pending_claim
+        app._outlook_email_plus_pending_claim = {
             "account_id": 5,
             "claim_token": "clm_5",
             "caller_id": "grok-register",
@@ -221,15 +221,15 @@ class OutlookPlusVerificationTests(unittest.TestCase):
             "email": "verify@b.com",
         }
         app.config.update({
-            "email_provider": "outlook_plus",
-            "outlook_plus_api_base": "https://omp.example.com",
-            "outlook_plus_api_key": "api-secret",
+            "email_provider": "outlook_email_plus",
+            "outlook_email_plus_api_base": "https://omp.example.com",
+            "outlook_email_plus_api_key": "api-secret",
             "proxy": "",
         })
 
     def tearDown(self):
         app.config = self.original_config
-        app._outlook_plus_pending_claim = self.original_pending
+        app._outlook_email_plus_pending_claim = self.original_pending
 
     def test_wait_message_returns_code(self):
         gets = []
@@ -246,7 +246,7 @@ class OutlookPlusVerificationTests(unittest.TestCase):
             })
 
         with patch.object(app, "http_get", side_effect=fake_get):
-            code = app.outlook_plus_get_oai_code(
+            code = app.outlook_email_plus_get_oai_code(
                 dev_token="{}",
                 email="verify@b.com",
                 timeout=30,
@@ -279,7 +279,7 @@ class OutlookPlusVerificationTests(unittest.TestCase):
         # 把 poll sleep 加速
         with patch.object(app, "sleep_with_cancel", lambda s, c=None: None), \
                 patch.object(app, "http_get", side_effect=fake_get):
-            code = app.outlook_plus_get_oai_code(
+            code = app.outlook_email_plus_get_oai_code(
                 dev_token="{}",
                 email="verify@b.com",
                 timeout=30,
@@ -296,7 +296,7 @@ class OutlookPlusVerificationTests(unittest.TestCase):
         with patch.object(app, "sleep_with_cancel", lambda s, c=None: None), \
                 patch.object(app, "http_get", side_effect=fake_get):
             with self.assertRaises(Exception) as ctx:
-                app.outlook_plus_get_oai_code(
+                app.outlook_email_plus_get_oai_code(
                     dev_token="{}",
                     email="verify@b.com",
                     timeout=2,
@@ -304,7 +304,7 @@ class OutlookPlusVerificationTests(unittest.TestCase):
                     cancel_callback=None,
                     resend_callback=None,
                 )
-        self.assertIn("OutlookPlus", str(ctx.exception))
+        self.assertIn("outlookEmailPlus", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -64,12 +64,12 @@ DEFAULT_CONFIG = {
     "grok2api_auto_add_remote": False,
     "grok2api_remote_base": "",
     "grok2api_remote_app_key": "",
-    "outlook_plus_api_base": "",
-    "outlook_plus_api_key": "",
-    "outlook_plus_caller_id": "grok-register",
-    "outlook_plus_pool_provider": "",
-    "outlook_plus_project_key": "",
-    "outlook_plus_email_domain": "",
+    "outlook_email_plus_api_base": "",
+    "outlook_email_plus_api_key": "",
+    "outlook_email_plus_caller_id": "grok-register",
+    "outlook_email_plus_pool_provider": "",
+    "outlook_email_plus_project_key": "",
+    "outlook_email_plus_email_domain": "",
 }
 
 config = DEFAULT_CONFIG.copy()
@@ -1118,63 +1118,63 @@ def yyds_get_oai_code(
     raise Exception(f"YYDS 在 {timeout}s 内未收到验证码邮件")
 
 
-# ===== OutlookMail Plus (outlookEmailPlus) 临时邮箱池接入 =====
+# ===== outlookEmailPlus (outlookEmailPlus) 临时邮箱池接入 =====
 # 接入对象：本地或自建的 outlookEmailPlus 服务，对外暴露 /api/external/* 接口
 # 鉴权方式：X-API-Key
 # 流程：claim-random 领取邮箱 -> wait-message 等待新邮件 -> 本地提取验证码
 #       -> 注册成功 claim-complete(success) / 失败放弃 claim-release
-_outlook_plus_pending_claim = None  # {"account_id","claim_token","caller_id","task_id","email"}
-_outlook_plus_task_counter = 0
+_outlook_email_plus_pending_claim = None  # {"account_id","claim_token","caller_id","task_id","email"}
+_outlook_email_plus_task_counter = 0
 
 
-def get_outlook_plus_api_key():
-    return str(config.get("outlook_plus_api_key", "") or "").strip()
+def get_outlook_email_plus_api_key():
+    return str(config.get("outlook_email_plus_api_key", "") or "").strip()
 
 
-def get_outlook_plus_api_base():
-    return str(config.get("outlook_plus_api_base", "") or "").rstrip("/")
+def get_outlook_email_plus_api_base():
+    return str(config.get("outlook_email_plus_api_base", "") or "").rstrip("/")
 
 
-def get_outlook_plus_caller_id():
-    cid = str(config.get("outlook_plus_caller_id", "") or "").strip()
+def get_outlook_email_plus_caller_id():
+    cid = str(config.get("outlook_email_plus_caller_id", "") or "").strip()
     return cid or "grok-register"
 
 
-def outlook_plus_build_headers(content_type=False):
+def outlook_email_plus_build_headers(content_type=False):
     headers = {}
     if content_type:
         headers["Content-Type"] = "application/json"
-    key = get_outlook_plus_api_key()
+    key = get_outlook_email_plus_api_key()
     if key:
         headers["X-API-Key"] = key
     return headers
 
 
-def _outlook_plus_next_task_id():
-    global _outlook_plus_task_counter
-    _outlook_plus_task_counter += 1
-    return f"grok-{int(time.time())}-{_outlook_plus_task_counter:04d}"
+def _outlook_email_plus_next_task_id():
+    global _outlook_email_plus_task_counter
+    _outlook_email_plus_task_counter += 1
+    return f"grok-{int(time.time())}-{_outlook_email_plus_task_counter:04d}"
 
 
-def _outlook_plus_external_url(path):
-    base = get_outlook_plus_api_base()
+def _outlook_email_plus_external_url(path):
+    base = get_outlook_email_plus_api_base()
     if not base:
-        raise Exception("OutlookMail Plus API Base 未配置")
+        raise Exception("outlookEmailPlus API Base 未配置")
     p = str(path or "")
     if not p.startswith("/"):
         p = "/" + p
     return f"{base}{p}"
 
 
-def outlook_plus_release_pending(reason="released", log_callback=None):
+def outlook_email_plus_release_pending(reason="released", log_callback=None):
     """释放当前未完成的领取租约。无挂起租约时为空操作。"""
-    global _outlook_plus_pending_claim
-    claim = _outlook_plus_pending_claim
+    global _outlook_email_plus_pending_claim
+    claim = _outlook_email_plus_pending_claim
     if not claim:
         return
-    _outlook_plus_pending_claim = None
-    api_base = get_outlook_plus_api_base()
-    if not api_base or not get_outlook_plus_api_key():
+    _outlook_email_plus_pending_claim = None
+    api_base = get_outlook_email_plus_api_base()
+    if not api_base or not get_outlook_email_plus_api_key():
         return
     payload = {
         "account_id": claim.get("account_id"),
@@ -1185,9 +1185,9 @@ def outlook_plus_release_pending(reason="released", log_callback=None):
     }
     try:
         resp = http_post(
-            _outlook_plus_external_url("/api/external/pool/claim-release"),
+            _outlook_email_plus_external_url("/api/external/pool/claim-release"),
             json=payload,
-            headers=outlook_plus_build_headers(content_type=True),
+            headers=outlook_email_plus_build_headers(content_type=True),
             timeout=20,
         )
         if log_callback:
@@ -1197,22 +1197,22 @@ def outlook_plus_release_pending(reason="released", log_callback=None):
             except Exception:
                 ok = 200 <= resp.status_code < 300
             log_callback(
-                f"[Debug] OutlookPlus claim-release({reason}) success={ok} status={resp.status_code}"
+                f"[Debug] outlookEmailPlus claim-release({reason}) success={ok} status={resp.status_code}"
             )
     except Exception as exc:
         if log_callback:
-            log_callback(f"[Debug] OutlookPlus claim-release 失败: {exc}")
+            log_callback(f"[Debug] outlookEmailPlus claim-release 失败: {exc}")
 
 
-def outlook_plus_complete_pending(result, detail="", log_callback=None):
+def outlook_email_plus_complete_pending(result, detail="", log_callback=None):
     """回传领取结果。无挂起租约时为空操作。"""
-    global _outlook_plus_pending_claim
-    claim = _outlook_plus_pending_claim
+    global _outlook_email_plus_pending_claim
+    claim = _outlook_email_plus_pending_claim
     if not claim:
         return
-    _outlook_plus_pending_claim = None
-    api_base = get_outlook_plus_api_base()
-    if not api_base or not get_outlook_plus_api_key():
+    _outlook_email_plus_pending_claim = None
+    api_base = get_outlook_email_plus_api_base()
+    if not api_base or not get_outlook_email_plus_api_key():
         return
     payload = {
         "account_id": claim.get("account_id"),
@@ -1224,9 +1224,9 @@ def outlook_plus_complete_pending(result, detail="", log_callback=None):
     }
     try:
         resp = http_post(
-            _outlook_plus_external_url("/api/external/pool/claim-complete"),
+            _outlook_email_plus_external_url("/api/external/pool/claim-complete"),
             json=payload,
-            headers=outlook_plus_build_headers(content_type=True),
+            headers=outlook_email_plus_build_headers(content_type=True),
             timeout=20,
         )
         if log_callback:
@@ -1239,66 +1239,66 @@ def outlook_plus_complete_pending(result, detail="", log_callback=None):
             except Exception:
                 ok = 200 <= resp.status_code < 300
             log_callback(
-                f"[Debug] OutlookPlus claim-complete({result}) success={ok} pool_status={pool_status}"
+                f"[Debug] outlookEmailPlus claim-complete({result}) success={ok} pool_status={pool_status}"
             )
     except Exception as exc:
         if log_callback:
-            log_callback(f"[Debug] OutlookPlus claim-complete 失败: {exc}")
+            log_callback(f"[Debug] outlookEmailPlus claim-complete 失败: {exc}")
 
 
-def outlook_plus_get_email_and_token():
+def outlook_email_plus_get_email_and_token():
     """从 outlookEmailPlus 邮箱池领取一个邮箱。
     返回 (email, dev_token)，其中 dev_token 为挂起领取上下文的 JSON 串，
     供回写 release/complete 时还原 caller_id/task_id/account_id/claim_token。
     """
-    global _outlook_plus_pending_claim
+    global _outlook_email_plus_pending_claim
     # 上一轮未被回写的领取在这里兜底释放，避免池中账号长期停留在 claimed
-    outlook_plus_release_pending(reason="verification_retry")
-    if not get_outlook_plus_api_base():
-        raise Exception("OutlookMail Plus API Base 未配置")
-    if not get_outlook_plus_api_key():
-        raise Exception("OutlookMail Plus API Key 未配置")
+    outlook_email_plus_release_pending(reason="verification_retry")
+    if not get_outlook_email_plus_api_base():
+        raise Exception("outlookEmailPlus API Base 未配置")
+    if not get_outlook_email_plus_api_key():
+        raise Exception("outlookEmailPlus API Key 未配置")
 
-    task_id = _outlook_plus_next_task_id()
+    task_id = _outlook_email_plus_next_task_id()
     payload = {
-        "caller_id": get_outlook_plus_caller_id(),
+        "caller_id": get_outlook_email_plus_caller_id(),
         "task_id": task_id,
     }
-    pool_provider = str(config.get("outlook_plus_pool_provider", "") or "").strip()
+    pool_provider = str(config.get("outlook_email_plus_pool_provider", "") or "").strip()
     if pool_provider:
         payload["provider"] = pool_provider
-    project_key = str(config.get("outlook_plus_project_key", "") or "").strip()
+    project_key = str(config.get("outlook_email_plus_project_key", "") or "").strip()
     if project_key:
         payload["project_key"] = project_key
-    email_domain = str(config.get("outlook_plus_email_domain", "") or "").strip()
+    email_domain = str(config.get("outlook_email_plus_email_domain", "") or "").strip()
     if email_domain and (pool_provider == "cloudflare_temp_mail"):
         payload["email_domain"] = email_domain
 
     resp = http_post(
-        _outlook_plus_external_url("/api/external/pool/claim-random"),
+        _outlook_email_plus_external_url("/api/external/pool/claim-random"),
         json=payload,
-        headers=outlook_plus_build_headers(content_type=True),
+        headers=outlook_email_plus_build_headers(content_type=True),
         timeout=30,
     )
     resp.raise_for_status()
     try:
         data = resp.json()
     except Exception:
-        raise Exception(f"OutlookPlus claim-random 返回非JSON: {response_preview(resp)}")
+        raise Exception(f"outlookEmailPlus claim-random 返回非JSON: {response_preview(resp)}")
     if not data.get("success"):
         code = str(data.get("code") or "")
         msg = str(data.get("message") or "")
         if code == "no_available_account":
-            raise Exception("OutlookPlus 池中没有可用邮箱")
-        raise Exception(f"OutlookPlus 领取失败: {code or 'UNKNOWN'} {msg}")
+            raise Exception("outlookEmailPlus 池中没有可用邮箱")
+        raise Exception(f"outlookEmailPlus 领取失败: {code or 'UNKNOWN'} {msg}")
     claim_data = data.get("data") or {}
     email = str(claim_data.get("email") or "").strip()
     if not email:
-        raise Exception(f"OutlookPlus 领取响应缺少 email: {data}")
-    _outlook_plus_pending_claim = {
+        raise Exception(f"outlookEmailPlus 领取响应缺少 email: {data}")
+    _outlook_email_plus_pending_claim = {
         "account_id": claim_data.get("account_id"),
         "claim_token": claim_data.get("claim_token"),
-        "caller_id": get_outlook_plus_caller_id(),
+        "caller_id": get_outlook_email_plus_caller_id(),
         "task_id": task_id,
         "email": email,
     }
@@ -1306,17 +1306,17 @@ def outlook_plus_get_email_and_token():
         {
             "account_id": claim_data.get("account_id"),
             "claim_token": claim_data.get("claim_token"),
-            "caller_id": get_outlook_plus_caller_id(),
+            "caller_id": get_outlook_email_plus_caller_id(),
             "task_id": task_id,
             "email": email,
         },
         ensure_ascii=False,
     )
-    print(f"[*] 已领取 OutlookPlus 邮箱: {email}")
+    print(f"[*] 已领取 outlookEmailPlus 邮箱: {email}")
     return email, dev_token
 
 
-def outlook_plus_get_oai_code(
+def outlook_email_plus_get_oai_code(
     dev_token,
     email,
     timeout=180,
@@ -1330,10 +1330,10 @@ def outlook_plus_get_oai_code(
     wait-message 的同步语义：只返回请求发起后才出现的匹配邮件，
     因此天然规避了“拿到旧邮件里的过期验证码”这一风险。
     """
-    api_base = get_outlook_plus_api_base()
+    api_base = get_outlook_email_plus_api_base()
     if not api_base:
-        raise Exception("OutlookMail Plus API Base 未配置")
-    headers = outlook_plus_build_headers()
+        raise Exception("outlookEmailPlus API Base 未配置")
+    headers = outlook_email_plus_build_headers()
     deadline = time.time() + timeout
     next_resend_at = time.time() + 35
     wait_seconds = 25
@@ -1351,9 +1351,9 @@ def outlook_plus_get_oai_code(
             next_resend_at = time.time() + 35
 
         # 若本次领取已被外部 release/complete，则停止轮询
-        if _outlook_plus_pending_claim is None and dev_token:
+        if _outlook_email_plus_pending_claim is None and dev_token:
             if log_callback:
-                log_callback("[Debug] OutlookPlus 领取已回传，停止等待验证码")
+                log_callback("[Debug] outlookEmailPlus 领取已回传，停止等待验证码")
             break
 
         params = {
@@ -1364,14 +1364,14 @@ def outlook_plus_get_oai_code(
         }
         try:
             resp = http_get(
-                _outlook_plus_external_url("/api/external/wait-message"),
+                _outlook_email_plus_external_url("/api/external/wait-message"),
                 headers=headers,
                 params=params,
                 timeout=wait_seconds + 15,
             )
         except Exception as exc:
             if log_callback:
-                log_callback(f"[Debug] OutlookPlus wait-message 请求异常: {exc}")
+                log_callback(f"[Debug] outlookEmailPlus wait-message 请求异常: {exc}")
             sleep_with_cancel(poll_interval, cancel_callback)
             continue
 
@@ -1384,7 +1384,7 @@ def outlook_plus_get_oai_code(
         except Exception:
             if log_callback:
                 log_callback(
-                    f"[Debug] OutlookPlus wait-message 非JSON: {response_preview(resp)}"
+                    f"[Debug] outlookEmailPlus wait-message 非JSON: {response_preview(resp)}"
                 )
             sleep_with_cancel(poll_interval, cancel_callback)
             continue
@@ -1394,11 +1394,11 @@ def outlook_plus_get_oai_code(
             # 池租约已失效：立即放弃等待
             if code in ("NOT_CLAIMED", "TOKEN_MISMATCH", "CALLER_MISMATCH", "ACCOUNT_NOT_FOUND"):
                 if log_callback:
-                    log_callback(f"[Debug] OutlookPlus 领取已失效: {code}")
+                    log_callback(f"[Debug] outlookEmailPlus 领取已失效: {code}")
                 break
             if log_callback:
                 log_callback(
-                    f"[Debug] OutlookPlus wait-message 失败: {code} {data.get('message')}"
+                    f"[Debug] outlookEmailPlus wait-message 失败: {code} {data.get('message')}"
                 )
             sleep_with_cancel(poll_interval, cancel_callback)
             continue
@@ -1416,15 +1416,15 @@ def outlook_plus_get_oai_code(
                         parts.append(v)
         combined = "\n".join(parts)
         if log_callback:
-            log_callback(f"[Debug] OutlookPlus 收到邮件: {subject}")
+            log_callback(f"[Debug] outlookEmailPlus 收到邮件: {subject}")
         code = extract_verification_code(combined, subject)
         if code:
             if log_callback:
-                log_callback(f"[*] OutlookPlus 从邮件中提取到验证码: {code}")
+                log_callback(f"[*] outlookEmailPlus 从邮件中提取到验证码: {code}")
             return code
         # 命中新邮件但未能提取出验证码：转下一轮，等待可能的重发邮件
         sleep_with_cancel(poll_interval, cancel_callback)
-    raise Exception(f"OutlookPlus 在 {timeout}s 内未收到验证码邮件")
+    raise Exception(f"outlookEmailPlus 在 {timeout}s 内未收到验证码邮件")
 
 
 def generate_username(length=10):
@@ -1451,21 +1451,21 @@ def get_email_provider():
 
 
 def release_email_provider_claim(reason="released", log_callback=None):
-    """邮箱 provider 释放当前占用。仅 outlook_plus 有池语义，其余为空操作。"""
-    if get_email_provider() == "outlook_plus":
-        outlook_plus_release_pending(reason=reason, log_callback=log_callback)
+    """邮箱 provider 释放当前占用。仅 outlook_email_plus 有池语义，其余为空操作。"""
+    if get_email_provider() == "outlook_email_plus":
+        outlook_email_plus_release_pending(reason=reason, log_callback=log_callback)
 
 
 def complete_email_provider_claim(result="success", detail="", log_callback=None):
-    """邮箱 provider 回传任务结果。仅 outlook_plus 有池语义，其余为空操作。"""
-    if get_email_provider() == "outlook_plus":
-        outlook_plus_complete_pending(result=result, detail=detail, log_callback=log_callback)
+    """邮箱 provider 回传任务结果。仅 outlook_email_plus 有池语义，其余为空操作。"""
+    if get_email_provider() == "outlook_email_plus":
+        outlook_email_plus_complete_pending(result=result, detail=detail, log_callback=log_callback)
 
 
 def get_email_and_token(api_key=None):
     provider = get_email_provider()
-    if provider == "outlook_plus":
-        return outlook_plus_get_email_and_token()
+    if provider == "outlook_email_plus":
+        return outlook_email_plus_get_email_and_token()
     if provider == "yyds":
         return yyds_get_email_and_token(api_key=api_key, jwt=get_yyds_jwt())
     if provider == "cloudflare":
@@ -1518,8 +1518,8 @@ def get_oai_code(
     resend_callback=None,
 ):
     provider = get_email_provider()
-    if provider == "outlook_plus":
-        return outlook_plus_get_oai_code(
+    if provider == "outlook_email_plus":
+        return outlook_email_plus_get_oai_code(
             dev_token,
             email,
             timeout=timeout,
@@ -3165,7 +3165,7 @@ class GrokRegisterGUI:
 
         add_label(0, 0, "邮箱服务商:")
         self.email_provider_var = tk.StringVar(value=config.get("email_provider", "duckmail"))
-        self.email_provider_combo = tk_option_menu(config_frame, self.email_provider_var, ["duckmail", "yyds", "cloudflare", "outlook_plus"], width=12)
+        self.email_provider_combo = tk_option_menu(config_frame, self.email_provider_var, ["duckmail", "yyds", "cloudflare", "outlook_email_plus"], width=12)
         add_field(self.email_provider_combo, 0, 1, sticky=tk.W)
 
         add_label(0, 2, "注册数量:")
@@ -3264,20 +3264,20 @@ class GrokRegisterGUI:
         self.grok2api_remote_key_entry = tk_entry(config_frame, textvariable=self.grok2api_remote_key_var, width=72)
         add_field(self.grok2api_remote_key_entry, 9, 1, columnspan=3)
 
-        add_label(10, 0, "OutlookPlus API Base:")
-        self.outlook_plus_api_base_var = tk.StringVar(value=str(config.get("outlook_plus_api_base", "")))
-        self.outlook_plus_api_base_entry = tk_entry(config_frame, textvariable=self.outlook_plus_api_base_var, width=72)
-        add_field(self.outlook_plus_api_base_entry, 10, 1, columnspan=3)
+        add_label(10, 0, "outlookEmailPlus API Base:")
+        self.outlook_email_plus_api_base_var = tk.StringVar(value=str(config.get("outlook_email_plus_api_base", "")))
+        self.outlook_email_plus_api_base_entry = tk_entry(config_frame, textvariable=self.outlook_email_plus_api_base_var, width=72)
+        add_field(self.outlook_email_plus_api_base_entry, 10, 1, columnspan=3)
 
-        add_label(11, 0, "OutlookPlus API Key:")
-        self.outlook_plus_api_key_var = tk.StringVar(value=str(config.get("outlook_plus_api_key", "")))
-        self.outlook_plus_api_key_entry = tk_entry(config_frame, textvariable=self.outlook_plus_api_key_var, width=34)
-        add_field(self.outlook_plus_api_key_entry, 11, 1)
+        add_label(11, 0, "outlookEmailPlus API Key:")
+        self.outlook_email_plus_api_key_var = tk.StringVar(value=str(config.get("outlook_email_plus_api_key", "")))
+        self.outlook_email_plus_api_key_entry = tk_entry(config_frame, textvariable=self.outlook_email_plus_api_key_var, width=34)
+        add_field(self.outlook_email_plus_api_key_entry, 11, 1)
 
-        add_label(11, 2, "OutlookPlus caller_id:")
-        self.outlook_plus_caller_id_var = tk.StringVar(value=str(config.get("outlook_plus_caller_id", "grok-register")))
-        self.outlook_plus_caller_id_entry = tk_entry(config_frame, textvariable=self.outlook_plus_caller_id_var, width=34)
-        add_field(self.outlook_plus_caller_id_entry, 11, 3)
+        add_label(11, 2, "outlookEmailPlus caller_id:")
+        self.outlook_email_plus_caller_id_var = tk.StringVar(value=str(config.get("outlook_email_plus_caller_id", "grok-register")))
+        self.outlook_email_plus_caller_id_entry = tk_entry(config_frame, textvariable=self.outlook_email_plus_caller_id_var, width=34)
+        add_field(self.outlook_email_plus_caller_id_entry, 11, 3)
 
         btn_frame = tk.Frame(main_frame, bg=UI_BG)
         btn_frame.grid(row=1, column=0, sticky=tk.EW, pady=(0, 6))
@@ -3368,9 +3368,9 @@ class GrokRegisterGUI:
         config["grok2api_auto_add_remote"] = bool(self.grok2api_remote_auto_var.get())
         config["grok2api_remote_base"] = self.grok2api_remote_base_var.get().strip()
         config["grok2api_remote_app_key"] = self.grok2api_remote_key_var.get().strip()
-        config["outlook_plus_api_base"] = self.outlook_plus_api_base_var.get().strip()
-        config["outlook_plus_api_key"] = self.outlook_plus_api_key_var.get().strip()
-        config["outlook_plus_caller_id"] = self.outlook_plus_caller_id_var.get().strip() or "grok-register"
+        config["outlook_email_plus_api_base"] = self.outlook_email_plus_api_base_var.get().strip()
+        config["outlook_email_plus_api_key"] = self.outlook_email_plus_api_key_var.get().strip()
+        config["outlook_email_plus_caller_id"] = self.outlook_email_plus_caller_id_var.get().strip() or "grok-register"
         raw_paths = [x.strip() for x in self.cloudflare_paths_var.get().split(",") if x.strip()]
         if len(raw_paths) >= 4:
             config["cloudflare_path_domains"] = raw_paths[0] if raw_paths[0].startswith("/") else ("/" + raw_paths[0])
@@ -3381,12 +3381,12 @@ class GrokRegisterGUI:
         if config["email_provider"] == "cloudflare" and not config["cloudflare_api_base"]:
             self.log("[!] Cloudflare 模式需要先填写 Cloudflare API Base")
             return
-        if config["email_provider"] == "outlook_plus":
-            if not config["outlook_plus_api_base"]:
-                self.log("[!] OutlookPlus 模式需要先填写 OutlookPlus API Base")
+        if config["email_provider"] == "outlook_email_plus":
+            if not config["outlook_email_plus_api_base"]:
+                self.log("[!] outlookEmailPlus 模式需要先填写 outlookEmailPlus API Base")
                 return
-            if not config["outlook_plus_api_key"]:
-                self.log("[!] OutlookPlus 模式需要先填写 OutlookPlus API Key")
+            if not config["outlook_email_plus_api_key"]:
+                self.log("[!] outlookEmailPlus 模式需要先填写 outlookEmailPlus API Key")
                 return
         try:
             count = int(self.count_var.get())
@@ -3717,6 +3717,257 @@ def run_registration_cli(count):
         cli_log(f"[*] 任务结束。成功 {success_count} | 失败 {fail_count}")
 
 
+def _cli_test_outlook_email_plus():
+    """自检 outlookEmailPlus 服务连通性与池读写能力。
+
+    步骤：
+      1. GET /api/external/health        服务健康检查
+      2. GET /api/external/capabilities  查看开放能力
+      3. POST /api/external/pool/claim-random  尝试领取一个邮箱
+      4. POST /api/external/pool/claim-release  立即释放刚领取的邮箱
+    任一步骤失败即判定不可用，并打印详细错误。
+    """
+    load_config()
+    cli_log("[*] 自检 outlookEmailPlus (/api/external/*)...")
+
+    api_base = get_outlook_email_plus_api_base()
+    api_key = get_outlook_email_plus_api_key()
+    if not api_base:
+        cli_log("[!] 未配置 outlook_email_plus_api_base，无法测试")
+        sys.exit(1)
+    if not api_key:
+        cli_log("[!] 未配置 outlook_email_plus_api_key，无法测试")
+        sys.exit(1)
+
+    cli_log(f"[*] Base: {api_base}")
+    cli_log(f"[*] Caller ID: {get_outlook_email_plus_caller_id()}")
+    headers = outlook_email_plus_build_headers(content_type=False)
+
+    # 1. health
+    try:
+        resp = http_get(f"{api_base}/api/external/health", headers=headers, timeout=20)
+        ok = 200 <= resp.status_code < 300
+        data = {}
+        try:
+            data = resp.json()
+        except Exception:
+            ok = ok and False
+        service = data.get("service") or "?"
+        version = data.get("version") or "?"
+        db_ok = data.get("database") or "?"
+        up_ok = data.get("upstream_probe_ok")
+        cli_log(
+            f"[{'+' if ok else '!'}] health  HTTP {resp.status_code}  service={service} version={version} database={db_ok} upstream_probe_ok={up_ok}"
+        )
+        if not ok:
+            cli_log(f"[!] health 接口返回非 2xx 或非 JSON: {response_preview(resp)}")
+            sys.exit(1)
+    except Exception as exc:
+        cli_log(f"[!] health 请求异常: {exc}")
+        sys.exit(1)
+
+    # 2. capabilities
+    try:
+        resp = http_get(f"{api_base}/api/external/capabilities", headers=headers, timeout=20)
+        ok = 200 <= resp.status_code < 300
+        feats = []
+        if ok:
+            try:
+                data = resp.json()
+                feats = list((data.get("data") or {}).get("features") or [])
+                public_mode = (data.get("data") or {}).get("public_mode")
+                cli_log(f"[*] capabilities  HTTP {resp.status_code}  public_mode={public_mode} features={feats}")
+            except Exception as exc:
+                cli_log(f"[!] capabilities 非 JSON: {exc}  body={response_preview(resp)}")
+                ok = False
+        if not ok:
+            cli_log(f"[!] capabilities 返回非 2xx: {response_preview(resp)}")
+            sys.exit(1)
+        # wait_message 是本接入的关键能力，不在列表里说明可能被公网模式禁用
+        if "wait_message" not in feats:
+            cli_log("[!] 提示: wait_message 能力未开放，outlookEmailPlus 取码会失败")
+    except Exception as exc:
+        cli_log(f"[!] capabilities 请求异常: {exc}")
+        sys.exit(1)
+
+    # 3. claim-random
+    task_id = _outlook_email_plus_next_task_id()
+    payload = {"caller_id": get_outlook_email_plus_caller_id(), "task_id": task_id}
+    pool_provider = str(config.get("outlook_email_plus_pool_provider", "") or "").strip()
+    if pool_provider:
+        payload["provider"] = pool_provider
+    project_key = str(config.get("outlook_email_plus_project_key", "") or "").strip()
+    if project_key:
+        payload["project_key"] = project_key
+    email_domain = str(config.get("outlook_email_plus_email_domain", "") or "").strip()
+    if email_domain and pool_provider == "cloudflare_temp_mail":
+        payload["email_domain"] = email_domain
+
+    claim_data = None
+    try:
+        cli_log(f"[*] claim-random  task_id={task_id} provider={pool_provider or '(不筛选)'}")
+        resp = http_post(
+            f"{api_base}/api/external/pool/claim-random",
+            json=payload,
+            headers=outlook_email_plus_build_headers(content_type=True),
+            timeout=30,
+        )
+        ok_code = resp.status_code == 200
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        success = ok_code and bool(data.get("success"))
+        code = data.get("code") or ""
+        claim_data = data.get("data") or {}
+        email = (claim_data or {}).get("email") or ""
+        lease = (claim_data or {}).get("lease_expires_at") or ""
+        if success and email:
+            cli_log(f"[+] claim-random  HTTP {resp.status_code}  email={email}  lease_expires_at={lease}")
+        else:
+            # 池中无可用邮箱也视为“池连接可用，仅当前无机可领”，不直接判失败
+            if code == "no_available_account":
+                cli_log(f"[~] claim-random  池连接正常但无可用邮箱  code={code}")
+                cli_log("[*] outlookEmailPlus 服务可用（未领取邮箱，跳过 release 验证）")
+                return
+            cli_log(f"[!] claim-random  失败  HTTP {resp.status_code}  code={code}  body={response_preview(resp)}")
+            sys.exit(1)
+    except Exception as exc:
+        cli_log(f"[!] claim-random 请求异常: {exc}")
+        sys.exit(1)
+
+    # 4. claim-release
+    try:
+        rel_payload = {
+            "account_id": claim_data.get("account_id"),
+            "claim_token": claim_data.get("claim_token"),
+            "caller_id": get_outlook_email_plus_caller_id(),
+            "task_id": task_id,
+            "reason": "self_test",
+        }
+        resp = http_post(
+            f"{api_base}/api/external/pool/claim-release",
+            json=rel_payload,
+            headers=outlook_email_plus_build_headers(content_type=True),
+            timeout=20,
+        )
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        if 200 <= resp.status_code < 300 and bool(data.get("success")):
+            cli_log(f"[+] claim-release HTTP {resp.status_code}  success=True  reason=self_test")
+        else:
+            cli_log(
+                f"[!] claim-release 失败  HTTP {resp.status_code}  code={data.get('code')}  body={response_preview(resp)}"
+            )
+            sys.exit(1)
+    except Exception as exc:
+        cli_log(f"[!] claim-release 请求异常: {exc}")
+        sys.exit(1)
+
+    cli_log("[*] outlookEmailPlus 自检通过：health / capabilities / claim-random / claim-release 全部可用")
+
+
+def _cli_test_grok2api():
+    """自检远端 grok2api token 池读写能力。
+
+    步骤：
+      1. GET /tokens?app_key=xxx  拉取远端当前池列表（验证 base 和 app_key 可用）
+      2. 对比 ssoBasic / ssoSuper 池结构与 pool_status，并在必要时回写空池验证写权限
+    """
+    load_config()
+    cli_log("[*] 自检 grok2api 远端 token 池...")
+
+    base = str(config.get("grok2api_remote_base", "") or "").strip().rstrip("/")
+    app_key = str(config.get("grok2api_remote_app_key", "") or "").strip()
+    pool_name = str(config.get("grok2api_pool_name", "ssoBasic") or "ssoBasic").strip() or "ssoBasic"
+    if not base or not app_key:
+        cli_log("[!] 未配置 grok2api_remote_base / grok2api_remote_app_key，跳过")
+        sys.exit(1)
+
+    cli_log(f"[*] Base: {base}")
+    cli_log(f"[*] Pool: {pool_name}")
+    api_bases = get_grok2api_remote_api_bases(base)
+    cli_log(f"[*] 候选 API 根路径: {api_bases}")
+
+    headers = {"Content-Type": "application/json"}
+    query = {"app_key": app_key}
+
+    list_ok = False
+    current = None
+    used_base = None
+    errors = []
+    for api_base in api_bases:
+        try:
+            resp = http_get(f"{api_base}/tokens", headers=headers, params=query, timeout=20)
+            if resp.status_code == 200:
+                payload = resp.json()
+                current = payload.get("tokens", {}) if isinstance(payload, dict) else {}
+                used_base = api_base
+                list_ok = True
+                break
+            errors.append(f"{api_base}/tokens: HTTP {resp.status_code} {response_preview(resp)}")
+        except Exception as exc:
+            errors.append(f"{api_base}/tokens: {exc}")
+
+    if not list_ok:
+        cli_log(f"[!] GET /tokens 全部候选失败:")
+        for e in errors:
+            cli_log(f"    - {e}")
+        sys.exit(1)
+
+    cli_log(f"[+] GET /tokens 成功  base={used_base}")
+    pool = current.get(pool_name) if isinstance(current, dict) else None
+    size = len(pool) if isinstance(pool, list) else 0
+    cli_log(f"[*] 当前 {pool_name} 池大小: {size}")
+
+    # 验证写权限：用空负载回写一次当前快照（不破坏任何已有 token）
+    if not isinstance(current, dict):
+        current = {}
+    try:
+        resp2 = http_post(f"{used_base}/tokens", headers=headers, params=query, json=current, timeout=30)
+        if 200 <= resp2.status_code < 300:
+            cli_log(f"[+] POST /tokens 成功 base={used_base}  写权限确认 OK")
+        else:
+            cli_log(
+                f"[!] POST /tokens 返回非 2xx  HTTP {resp2.status_code}  body={response_preview(resp2)}"
+                "（可能 base/app_key 是只读，或 /tokens 不支持写；如只用 /tokens/add 路径可忽略）"
+            )
+    except Exception as exc:
+        cli_log(f"[!] POST /tokens 异常: {exc}（如只用 /tokens/add 路径可忽略）")
+
+    # 也验证 /tokens/add 路径连通性（用一个空 tokens 列表探测，避免真正写入）
+    add_connected = False
+    for api_base in api_bases:
+        try:
+            # 用空 token 列表直接调用 add，避免真的写入新 token
+            resp = http_post(
+                f"{api_base}/tokens/add",
+                headers=headers,
+                params=query,
+                json={"tokens": [], "pool": "basic", "tags": []},
+                timeout=20,
+            )
+            if 200 <= resp.status_code < 300:
+                add_connected = True
+                cli_log(f"[+] POST /tokens/add 连通  base={api_base} (空 tokens 探测)")
+                break
+            # 4xx 也算连通，至少不是网络问题
+            if 400 <= resp.status_code < 500:
+                add_connected = True
+                cli_log(
+                    f"[*] POST /tokens/add 连通但拒绝  HTTP {resp.status_code}  body={response_preview(resp)}"
+                )
+                break
+        except Exception as exc:
+            continue
+    if not add_connected:
+        cli_log("[!] /tokens/add 全部候选均无响应（可能旧版仅支持 /tokens 全量接口）")
+
+    cli_log("[*] grok2api 远端 token 池自检完成")
+
+
 def main_cli():
     load_config()
     count = int(config.get("register_count", 1) or 1)
@@ -3735,9 +3986,28 @@ def main_cli():
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1].strip().lower() in ("start", "cli", "--cli"):
-        main_cli()
-        return
+    argv = sys.argv[1:]
+    if argv:
+        cmd = argv[0].strip().lower()
+        if cmd in ("start", "cli", "--cli"):
+            main_cli()
+            return
+        if cmd in ("test-outlook-email-plus", "test-oep", "--test-outlook-email-plus"):
+            _cli_test_outlook_email_plus()
+            return
+        if cmd in ("test-grok2api", "test-remote", "--test-grok2api"):
+            _cli_test_grok2api()
+            return
+        if cmd in ("-h", "--help", "help"):
+            print(
+                "用法:\n"
+                "  python grok_register_ttk.py                          启动 GUI\n"
+                "  python grok_register_ttk.py cli                      交互式 CLI 注册\n"
+                "  python grok_register_ttk.py test-outlook-email-plus  自检 outlookEmailPlus 池读写\n"
+                "  python grok_register_ttk.py test-grok2api            自检远端 grok2api token 池\n"
+                "  python grok_register_ttk.py -h                       显示本帮助\n"
+            )
+            return
     root = tk.Tk()
     setup_light_theme(root)
     app = GrokRegisterGUI(root)

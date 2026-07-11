@@ -50,7 +50,7 @@ Grok Register 是一个面向自动化流程研究、测试环境验证和个人
 - 支持 CLI 终端运行，不启动 Tk GUI。
 - 注册流程使用 Chromium/Chrome 浏览器页面完成。
 - 支持 DuckMail、YYDS、Cloudflare 临时邮箱接口。
-- 支持 OutlookMail Plus（outlookEmailPlus）邮箱池接口：领取、等待验证码、回传结果。
+- 支持 outlookEmailPlus（outlookEmailPlus）邮箱池接口：领取、等待验证码、回传结果。
 - 支持验证码邮件轮询和解析。
 - 支持成功账号实时写入 `accounts_*.txt`。
 - 支持将 SSO token 写入 grok2api 本地或远端池。
@@ -92,7 +92,7 @@ cp config.example.json config.json
 
 | 配置项 | 说明 |
 | --- | --- |
-| `email_provider` | 邮箱服务商：`duckmail`、`yyds`、`cloudflare`、`outlook_plus` |
+| `email_provider` | 邮箱服务商：`duckmail`、`yyds`、`cloudflare`、`outlook_email_plus` |
 | `register_count` | 本次目标注册数量 |
 | `proxy` | 代理地址，可留空 |
 | `enable_nsfw` | 注册后是否尝试开启 NSFW |
@@ -183,9 +183,9 @@ python cf_mail_debug.py --api-base "https://你的-worker-api-域名" --auth-mod
 
 程序会优先尝试 `/tokens/add`，并兼容 `/admin/api/tokens/add`；旧版全量保存接口也会兼容 `/tokens` 和 `/admin/api/tokens`。
 
-### OutlookMail Plus（outlookEmailPlus）邮箱池接入
+### outlookEmailPlus（outlookEmailPlus）邮箱池接入
 
-将 `email_provider` 设为 `outlook_plus` 即可接入自建的 outlookEmailPlus 服务。该服务对外暴露 `/api/external/*` 接口（`X-API-Key` 鉴权），程序会按推荐流程完成池交互：
+将 `email_provider` 设为 `outlook_email_plus` 即可接入自建的 outlookEmailPlus 服务。该服务对外暴露 `/api/external/*` 接口（`X-API-Key` 鉴权），程序会按推荐流程完成池交互：
 
 1. `POST /api/external/pool/claim-random` 领取一个邮箱
 2. `GET /api/external/wait-message` 轮询“请求发起后才到达”的新邮件，并本地提取 `xAI` 验证码
@@ -194,13 +194,13 @@ python cf_mail_debug.py --api-base "https://你的-worker-api-域名" --auth-mod
 
 ```json
 {
-  "email_provider": "outlook_plus",
-  "outlook_plus_api_base": "https://你的-outlookEmailPlus-域名",
-  "outlook_plus_api_key": "你的 X-API-Key",
-  "outlook_plus_caller_id": "grok-register",
-  "outlook_plus_pool_provider": "",
-  "outlook_plus_project_key": "",
-  "outlook_plus_email_domain": ""
+  "email_provider": "outlook_email_plus",
+  "outlook_email_plus_api_base": "https://你的-outlookEmailPlus-域名",
+  "outlook_email_plus_api_key": "你的 X-API-Key",
+  "outlook_email_plus_caller_id": "grok-register",
+  "outlook_email_plus_pool_provider": "",
+  "outlook_email_plus_project_key": "",
+  "outlook_email_plus_email_domain": ""
 }
 ```
 
@@ -208,10 +208,10 @@ python cf_mail_debug.py --api-base "https://你的-worker-api-域名" --auth-mod
 
 | 配置项 | 说明 |
 | --- | --- |
-| `outlook_plus_caller_id` | 调用方/节点标识；回写 release/complete 时必须与领取时一致，默认 `grok-register` |
-| `outlook_plus_pool_provider` | 池筛选：`outlook` / `imap` / `custom` / `cloudflare_temp_mail`，留空表示不筛选 |
-| `outlook_plus_project_key` | 长期邮箱项目复用标识；非空时 `success` 后会回到 `available` 供同项目去重、跨项目复用 |
-| `outlook_plus_email_domain` | 仅 `provider=cloudflare_temp_mail` 且需指定动态创建邮箱域名时使用 |
+| `outlook_email_plus_caller_id` | 调用方/节点标识；回写 release/complete 时必须与领取时一致，默认 `grok-register` |
+| `outlook_email_plus_pool_provider` | 池筛选：`outlook` / `imap` / `custom` / `cloudflare_temp_mail`，留空表示不筛选 |
+| `outlook_email_plus_project_key` | 长期邮箱项目复用标识；非空时 `success` 后会回到 `available` 供同项目去重、跨项目复用 |
+| `outlook_email_plus_email_domain` | 仅 `provider=cloudflare_temp_mail` 且需指定动态创建邮箱域名时使用 |
 
 说明：
 
