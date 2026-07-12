@@ -1337,23 +1337,36 @@ def outlook_email_plus_get_oai_code(
     deadline = time.time() + timeout
     next_resend_at = time.time() + 35
     wait_seconds = 25
+    round_no = 0
+    if log_callback:
+        log_callback(
+            f"[Debug] outlookEmailPlus 拉取验证码开始: email={email} "
+            f"timeout={timeout}s wait_seconds={wait_seconds} poll_interval={poll_interval}s "
+            f"api_base={api_base}"
+        )
     while time.time() < deadline:
+        round_no += 1
+        remaining = int(deadline - time.time())
         raise_if_cancelled(cancel_callback)
         # 在每一轮等待前触发重新发送验证码（页面端逻辑），与其它 provider 保持一致节奏
         if resend_callback and time.time() >= next_resend_at:
+            if log_callback:
+                log_callback(f"[Debug] outlookEmailPlus 第{round_no}轮 触发重新发送验证码")
             try:
                 resend_callback()
                 if log_callback:
-                    log_callback("[*] 已触发重新发送验证码")
+                    log_callback(f"[*] outlookEmailPlus 第{round_no}轮 已触发重新发送验证码")
             except Exception as exc:
                 if log_callback:
-                    log_callback(f"[Debug] 触发重发验证码失败: {exc}")
+                    log_callback(f"[Debug] outlookEmailPlus 第{round_no}轮 触发重发验证码失败: {exc}")
             next_resend_at = time.time() + 35
 
         # 若本次领取已被外部 release/complete，则停止轮询
         if _outlook_email_plus_pending_claim is None and dev_token:
             if log_callback:
-                log_callback("[Debug] outlookEmailPlus 领取已回传，停止等待验证码")
+                log_callback(
+                    f"[Debug] outlookEmailPlus 第{round_no}轮 领取已回传，停止等待验证码"
+                )
             break
 
         params = {
@@ -1362,21 +1375,38 @@ def outlook_email_plus_get_oai_code(
             "poll_interval": poll_interval,
             "mode": "sync",
         }
+        wait_url = _outlook_email_plus_external_url("/api/external/wait-message")
+        if log_callback:
+            log_callback(
+                f"[Debug] outlookEmailPlus 第{round_no}轮 等待新邮件 "
+                f"剩余={remaining}s wait_seconds={wait_seconds} url={wait_url}"
+            )
         try:
             resp = http_get(
-                _outlook_email_plus_external_url("/api/external/wait-message"),
+                wait_url,
                 headers=headers,
                 params=params,
                 timeout=wait_seconds + 15,
             )
         except Exception as exc:
             if log_callback:
-                log_callback(f"[Debug] outlookEmailPlus wait-message 请求异常: {exc}")
+                log_callback(
+                    f"[Debug] outlookEmailPlus 第{round_no}轮 wait-message 请求异常: {exc}"
+                )
             sleep_with_cancel(poll_interval, cancel_callback)
             continue
 
+        if log_callback:
+            log_callback(
+                f"[Debug] outlookEmailPlus 第{round_no}轮 wait-message 响应 "
+                f"status={resp.status_code} len={len(resp.text or '')}"
+            )
         if resp.status_code == 404:
             # 服务端本轮未等到新邮件，继续下一轮
+            if log_callback:
+                log_callback(
+                    f"[Debug] outlookEmailPlus 第{round_no}轮 本轮未等到新邮件(404)，继续下一轮"
+                )
             sleep_with_cancel(poll_interval, cancel_callback)
             continue
         try:
@@ -1384,7 +1414,7 @@ def outlook_email_plus_get_oai_code(
         except Exception:
             if log_callback:
                 log_callback(
-                    f"[Debug] outlookEmailPlus wait-message 非JSON: {response_preview(resp)}"
+                    f"[Debug] outlookEmailPlus 第{round_no}轮 wait-message 非JSON: {response_preview(resp)}"
                 )
             sleep_with_cancel(poll_interval, cancel_callback)
             continue
@@ -1394,36 +1424,56 @@ def outlook_email_plus_get_oai_code(
             # 池租约已失效：立即放弃等待
             if code in ("NOT_CLAIMED", "TOKEN_MISMATCH", "CALLER_MISMATCH", "ACCOUNT_NOT_FOUND"):
                 if log_callback:
-                    log_callback(f"[Debug] outlookEmailPlus 领取已失效: {code}")
+                    log_callback(
+                        f"[Debug] outlookEmailPlus 第{round_no}轮 领取已失效: {code} msg={data.get('message')}"
+                    )
                 break
             if log_callback:
                 log_callback(
-                    f"[Debug] outlookEmailPlus wait-message 失败: {code} {data.get('message')}"
+                    f"[Debug] outlookEmailPlus 第{round_no}轮 wait-message 失败: {code} {data.get('message')}"
                 )
             sleep_with_cancel(poll_interval, cancel_callback)
             continue
 
         msg = data.get("data") or {}
         subject = str(msg.get("subject") or "")
+        msg_id = msg.get("id") or msg.get("messageId") or msg.get("uid") or ""
         parts = []
+        used_fields = []
         for field in ("content", "html_content", "body_preview", "snippet", "text", "raw_content"):
             value = msg.get(field)
             if isinstance(value, str) and value.strip():
                 parts.append(value)
+                used_fields.append(f"{field}:{len(value)}")
             elif isinstance(value, list):
                 for v in value:
                     if isinstance(v, str) and v.strip():
                         parts.append(v)
+                        used_fields.append(f"{field}[{len(v)}]")
         combined = "\n".join(parts)
         if log_callback:
-            log_callback(f"[Debug] outlookEmailPlus 收到邮件: {subject}")
+            log_callback(
+                f"[Debug] outlookEmailPlus 第{round_no}轮 收到邮件: id={msg_id} "
+                f"subject={subject} fields=[{','.join(used_fields)}] combined_len={len(combined)}"
+            )
         code = extract_verification_code(combined, subject)
         if code:
             if log_callback:
-                log_callback(f"[*] outlookEmailPlus 从邮件中提取到验证码: {code}")
+                log_callback(
+                    f"[*] outlookEmailPlus 第{round_no}轮 从邮件中提取到验证码: {code}"
+                )
             return code
         # 命中新邮件但未能提取出验证码：转下一轮，等待可能的重发邮件
+        if log_callback:
+            log_callback(
+                f"[Debug] outlookEmailPlus 第{round_no}轮 邮件已解析但未提取到验证码，"
+                f"继续等待重发 preview={response_preview(resp, 120)}"
+            )
         sleep_with_cancel(poll_interval, cancel_callback)
+    if log_callback:
+        log_callback(
+            f"[Debug] outlookEmailPlus 拉取验证码结束: 共{round_no}轮 超时={timeout}s 未收到验证码"
+        )
     raise Exception(f"outlookEmailPlus 在 {timeout}s 内未收到验证码邮件")
 
 
@@ -4005,7 +4055,7 @@ def main():
                 "  python grok_register_ttk.py cli                      交互式 CLI 注册\n"
                 "  python grok_register_ttk.py test-outlook-email-plus  自检 outlookEmailPlus 池读写\n"
                 "  python grok_register_ttk.py test-grok2api            自检远端 grok2api token 池\n"
-                "  python grok_register_ttk.py -h                       显示本帮助\n"
+                "  python grok_register_ttk.py -h|--help                显示本帮助\n"
             )
             return
     root = tk.Tk()
